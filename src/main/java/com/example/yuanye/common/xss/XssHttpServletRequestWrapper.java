@@ -1,0 +1,176 @@
+/*by lucky 2019年5月5日
+ //						   _ooOoo_							              _ooOoo_
+ //						  o8888888o							             o8888888o
+ //						  88" . "88							             88" . "88
+ //						  (| -_- |)							             (| -_- |)
+ //						  O\  =  /O							             O\  =  /O
+ //					   ____/`---'\____						   	      ____/`---'\____
+ //					 .'  \\|     |//  `.						     .   ' \\| |//   `.
+ //					/  \\|||  :  |||//  \						    /  \\|||  :  |||//  \
+ //				   /  _||||| -:- |||||-  \						   /  _||||| -:- |||||-  \
+ //				   |   | \\\  -  /// |   |						   |   | \\\  -  /// |   |
+ //				   | \_|  ''\---/''  |   |						   | \_|  ''\---/''  |   |
+ //				   \  .-\__  `-`  ___/-. /						    \  .-\__ `-` ___/-.  /
+ //			     ___`. .'  /--.--\  `. . __					  	  ___`. .' /--.--\ `. . __
+ //			  ."" '<  `.___\_<|>_/___.'  >'"".				   ."" '< `.___\_<|>_/___.' >'"".
+ //			 | | :  `- \`.;`\ _ /`;.`/ - ` : | |			 | | : `- \`.;`\ _ /`;.`/ - ` : | |
+ //			 \  \ `-.   \_ __\ /__ _/   .-` /  /			   \ \ `-. \_ __\ /__ _/ .-` / /
+ //		 ======`-.____`-.___\_____/___.-`____.-'====== ======`-.____`-.___\_____/___.-`____.-'======
+ //					       	`=---='
+ //
+ //		^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  .............................................
+ //			     	  佛祖保佑             永无BUG   									佛祖保佑       永无BUG
+ //			佛曰:
+ //				写字楼里写字间，写字间里程序员；
+ //				程序人员写程序，又拿程序换酒钱。
+ //				酒醒只在网上坐，酒醉还来网下眠；
+ //				酒醉酒醒日复日，网上网下年复年。
+ //				但愿老死电脑间，不愿鞠躬老板前；
+ //				奔驰宝马贵者趣，公交自行程序员。
+ //				别人笑我忒疯癫，我笑自己命太贱；
+ //				不见满街漂亮妹，哪个归得程序员？
+ //										-------by 见死不救
+ */
+
+package com.example.yuanye.common.xss;
+
+import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang.StringUtils;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+
+import javax.servlet.ReadListener;
+import javax.servlet.ServletInputStream;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletRequestWrapper;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * XSS过滤处理
+ *
+ * @author
+ */
+public class XssHttpServletRequestWrapper extends HttpServletRequestWrapper {
+    /**
+     * 没被包装过的HttpServletRequest（特殊场景，需要自己过滤）
+     */
+    HttpServletRequest orgRequest;
+    /**
+     * html过滤
+     */
+    private final static HTMLFilter htmlFilter = new HTMLFilter();
+
+    public XssHttpServletRequestWrapper(HttpServletRequest request) {
+        super(request);
+        orgRequest = request;
+    }
+
+    @Override
+    public ServletInputStream getInputStream() throws IOException {
+        //非json类型，直接返回
+        if(!MediaType.APPLICATION_JSON_VALUE.equalsIgnoreCase(super.getHeader(HttpHeaders.CONTENT_TYPE))){
+            return super.getInputStream();
+        }
+
+        //为空，直接返回
+        String json = IOUtils.toString(super.getInputStream(), "utf-8");
+        if (StringUtils.isBlank(json)) {
+            return super.getInputStream();
+        }
+
+        //xss过滤
+        json = xssEncode(json);
+        final ByteArrayInputStream bis = new ByteArrayInputStream(json.getBytes("utf-8"));
+        return new ServletInputStream() {
+            @Override
+            public boolean isFinished() {
+                return true;
+            }
+
+            @Override
+            public boolean isReady() {
+                return true;
+            }
+
+            @Override
+            public void setReadListener(ReadListener readListener) {
+            }
+
+            @Override
+            public int read() throws IOException {
+                return bis.read();
+            }
+        };
+    }
+
+    @Override
+    public String getParameter(String name) {
+        String value = super.getParameter(xssEncode(name));
+        if (StringUtils.isNotBlank(value)) {
+            value = xssEncode(value);
+        }
+        return value;
+    }
+
+    @Override
+    public String[] getParameterValues(String name) {
+        String[] parameters = super.getParameterValues(name);
+        if (parameters == null || parameters.length == 0) {
+            return null;
+        }
+
+        for (int i = 0; i < parameters.length; i++) {
+            parameters[i] = xssEncode(parameters[i]);
+        }
+        return parameters;
+    }
+
+    @Override
+    public Map<String,String[]> getParameterMap() {
+        Map<String,String[]> map = new LinkedHashMap<>();
+        Map<String,String[]> parameters = super.getParameterMap();
+        for (String key : parameters.keySet()) {
+            String[] values = parameters.get(key);
+            for (int i = 0; i < values.length; i++) {
+                values[i] = xssEncode(values[i]);
+            }
+            map.put(key, values);
+        }
+        return map;
+    }
+
+    @Override
+    public String getHeader(String name) {
+        String value = super.getHeader(xssEncode(name));
+        if (StringUtils.isNotBlank(value)) {
+            value = xssEncode(value);
+        }
+        return value;
+    }
+
+    private String xssEncode(String input) {
+        return htmlFilter.filter(input);
+    }
+
+    /**
+     * 获取最原始的request
+     */
+    public HttpServletRequest getOrgRequest() {
+        return orgRequest;
+    }
+
+    /**
+     * 获取最原始的request
+     */
+    public static HttpServletRequest getOrgRequest(HttpServletRequest request) {
+        if (request instanceof XssHttpServletRequestWrapper) {
+            return ((XssHttpServletRequestWrapper) request).getOrgRequest();
+        }
+
+        return request;
+    }
+
+}
